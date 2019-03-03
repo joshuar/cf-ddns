@@ -1,0 +1,10 @@
+---
+interval: 1h
+account:
+  email: email@somewhere.net
+  apiKey: alongstring
+  zone: whatever.com
+records:
+  - myserver.whatever.com
+
+  
