@@ -83,6 +83,7 @@ func main() {
 			ipv6 := lookupIPv6()
 
 			for _, r := range records {
+				r.GetRecordDetails(account)
 				switch r.recordType {
 				case "A":
 					if r.ipAddr != ipv4 {
