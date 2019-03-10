@@ -9,6 +9,7 @@ import (
 	resty "gopkg.in/resty.v1"
 
 	"github.com/akamensky/argparse"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/olebedev/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -53,23 +54,20 @@ func main() {
 	// read config file
 	file, err := ioutil.ReadFile(*configFile)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"config": *configFile,
-			"error":  err,
-		}).Fatal("Could not read config file")
+		logError(err, "Could not read config file", "fatal")
 	}
 	log.Debug("Read config file")
 	cfg, err := config.ParseYaml(string(file))
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Could not read config file")
+		logError(err, "Could not read config file", "fatal")
 	}
 	log.Debug("Parsed config file")
 
 	// create account and record details
 	account := getAccount(cfg)
 	records := getRecords(cfg, account)
+
+	runLoop(account, records)
 
 	// loop for the configured interval
 	// fetch WAN address on every loop
@@ -79,32 +77,39 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			ipv4 := lookupIPv4()
-			ipv6 := lookupIPv6()
+			runLoop(account, records)
+		}
+	}
+}
 
-			for _, r := range records {
-				r.GetRecordDetails(account)
-				switch r.recordType {
-				case "A":
-					if r.ipAddr != ipv4 {
-						r.updateRecord(account, ipv4)
-					} else {
-						log.WithFields(log.Fields{
-							"record": r.name,
-							"ipAddr": r.ipAddr,
-						}).Info("no ipv4 update needed")
-					}
-				case "AAAA":
-					if r.ipAddr != ipv6 {
-						r.updateRecord(account, ipv6)
-					} else {
-						log.WithFields(log.Fields{
-							"record": r.name,
-							"ipAddr": r.ipAddr,
-						}).Info("no ipv6 update needed")
-					}
-				}
+func runLoop(account cfAccount, recordsArray []record) {
+	ipv4 := lookupIPv4()
+	ipv6 := lookupIPv6()
 
+	for _, r := range recordsArray {
+		r.GetRecordDetails(account)
+		switch r.recordType {
+		case "A":
+			if r.ipAddr == "" {
+				r.addRecord(account, ipv4)
+			} else if r.ipAddr != ipv4 {
+				r.updateRecord(account, ipv4)
+			} else {
+				log.WithFields(log.Fields{
+					"record": r.name,
+					"ipAddr": r.ipAddr,
+				}).Info("no ipv4 update needed")
+			}
+		case "AAAA":
+			if r.ipAddr == "" {
+				r.addRecord(account, ipv6)
+			} else if r.ipAddr != ipv6 {
+				r.updateRecord(account, ipv6)
+			} else {
+				log.WithFields(log.Fields{
+					"record": r.name,
+					"ipAddr": r.ipAddr,
+				}).Info("no ipv6 update needed")
 			}
 		}
 	}
@@ -113,17 +118,13 @@ func main() {
 func getInterval(c *config.Config) time.Duration {
 	i, err := c.String("interval")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Warn("Unable to parse interval from config, using default of 1h")
+		logError(err, "Unable to parse interval from config, using default of 1h", "warn")
 		defaultInterval, _ := time.ParseDuration("1h")
 		return defaultInterval
 	}
 	configInterval, err := time.ParseDuration(i)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Warn("Unable to use interval from config, using default of 1h")
+		logError(err, "Couldn't understand interval specified, using default of 1h", "warn")
 		defaultInterval, _ := time.ParseDuration("1h")
 		return defaultInterval
 	}
@@ -136,27 +137,19 @@ func getInterval(c *config.Config) time.Duration {
 func getAccount(c *config.Config) cfAccount {
 	acc, err := c.Get("account")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read account details from config")
+		logError(err, "Unable to read account details from config", "fatal")
 	}
 	email, err := acc.String("email")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read email from config")
+		logError(err, "Unable to read email from config", "fatal")
 	}
 	apiKey, err := acc.String("apiKey")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read apiKey from config")
+		logError(err, "Unable to read apiKey from config", "fatal")
 	}
 	zone, err := acc.String("zone")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read zone from config")
+		logError(err, "Unable to read zone from config", "fatal")
 	}
 	account := cfAccount{
 		email:  email,
@@ -172,9 +165,7 @@ func getRecords(c *config.Config, a cfAccount) []record {
 	var records []record
 	recordsList, err := c.List("records")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read records to update from config")
+		logError(err, "Unable to read records to update from config", "fatal")
 	}
 	for _, name := range recordsList {
 		ARecord := record{
@@ -196,25 +187,17 @@ func getRecords(c *config.Config, a cfAccount) []record {
 
 func lookupIPv4() string {
 	resp, _ := resty.R().Get(ipv4Checker)
-	log.WithFields(log.Fields{
-		"ipAddr":       resp.String(),
-		"statusCode":   resp.StatusCode(),
-		"status":       resp.Status(),
-		"responseTime": resp.Time(),
-		"receivedAt":   resp.ReceivedAt(),
-	}).Debug("Retrieved WAN IPv4 Address")
+
+	logTimings(resp, "Retrieved WAN IPv4 Address")
+
 	return resp.String()
 }
 
 func lookupIPv6() string {
 	resp, _ := resty.R().Get(ipv6Checker)
-	log.WithFields(log.Fields{
-		"ipAddr":       resp.String(),
-		"statusCode":   resp.StatusCode(),
-		"status":       resp.Status(),
-		"responseTime": resp.Time(),
-		"receivedAt":   resp.ReceivedAt(),
-	}).Debug("Retrieved WAN IPv6 Address")
+
+	logTimings(resp, "Retrieved WAN IPv6 Address")
+
 	return resp.String()
 }
 
@@ -226,19 +209,14 @@ func (c *cfAccount) GetZoneID() {
 		SetHeader("X-Auth-Email", c.email).
 		SetHeader("X-Auth-Key", c.apiKey).
 		Get("https://api.cloudflare.com/client/v4/zones?name={zone}")
-	log.WithFields(log.Fields{
-		"statusCode":   resp.StatusCode(),
-		"status":       resp.Status(),
-		"responseTime": resp.Time(),
-		"receivedAt":   resp.ReceivedAt(),
-	}).Debug("Retrieved Zone ID")
+
+	logTimings(resp, "Retrieved Zone ID")
 
 	var zr ZoneResponse
 
 	if err := json.Unmarshal(resp.Body(), &zr); err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to retrieve zone ID")
+		spew.Dump(resp)
+		logError(err, "Unable to retrieve zone ID", "warn")
 	}
 
 	c.zoneID = zr.Result[0].ID
@@ -255,23 +233,22 @@ func (r *record) GetRecordDetails(c cfAccount) {
 		SetHeader("X-Auth-Email", c.email).
 		SetHeader("X-Auth-Key", c.apiKey).
 		Get("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records?name={record}&type={recordType}")
-	log.WithFields(log.Fields{
-		"statusCode":   resp.StatusCode(),
-		"status":       resp.Status(),
-		"responseTime": resp.Time(),
-		"receivedAt":   resp.ReceivedAt(),
-	}).Debug("Retrieved Record Details")
+
+	logTimings(resp, "Retrieved Record Details")
 
 	var rr RecordResponse
 
 	if err := json.Unmarshal(resp.Body(), &rr); err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Unable to read record details")
+		logError(err, "Unable to read record details", "warn")
 	}
 
-	r.ID = rr.Result[0].ID
-	r.ipAddr = rr.Result[0].Content
+	if rr.ResultInfo.Count > 0 {
+		r.ID = rr.Result[0].ID
+		r.ipAddr = rr.Result[0].Content
+	} else {
+		r.ID = ""
+		r.ipAddr = ""
+	}
 }
 
 func (r *record) updateRecord(c cfAccount, ipAddr string) {
@@ -288,25 +265,39 @@ func (r *record) updateRecord(c cfAccount, ipAddr string) {
 			Content: ipAddr,
 		}).
 		Put("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records/{record}")
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Warn("Unable to update record")
+	if err != nil || resp.StatusCode() != 200 {
+		logError(err, "Unable to update record", "error")
 	} else {
 		log.WithFields(log.Fields{
 			"name":        r.name,
 			"curr_ipAddr": r.ipAddr,
 			"new_ipAddr":  ipAddr,
 		}).Info("Updated record")
+		logTimings(resp, "Updated Record")
 	}
-	log.WithFields(log.Fields{
-		"statusCode":   resp.StatusCode(),
-		"status":       resp.Status(),
-		"responseTime": resp.Time(),
-		"receivedAt":   resp.ReceivedAt(),
-		"recordType":   r.recordType,
-		"ID":           r.ID,
-		"name":         r.name,
-		"ipAddr":       ipAddr,
-	}).Debug("Update details")
+}
+
+func (r *record) addRecord(c cfAccount, ipAddr string) {
+	resp, err := resty.R().
+		SetPathParams(map[string]string{
+			"zone": c.zoneID,
+		}).
+		SetHeader("X-Auth-Email", c.email).
+		SetHeader("X-Auth-Key", c.apiKey).
+		SetBody(RecordRequest{
+			Type:    r.recordType,
+			Name:    r.name,
+			Content: ipAddr,
+		}).
+		Post("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records")
+	spew.Dump(resp)
+	if err != nil || resp.StatusCode() != 200 {
+		logError(err, "Unable to add record", "error")
+	} else {
+		log.WithFields(log.Fields{
+			"name":       r.name,
+			"new_ipAddr": ipAddr,
+		}).Info("Added record")
+		logTimings(resp, "Added Record")
+	}
 }
