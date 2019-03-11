@@ -9,7 +9,6 @@ import (
 	resty "gopkg.in/resty.v1"
 
 	"github.com/akamensky/argparse"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/olebedev/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -82,7 +81,7 @@ func main() {
 	}
 }
 
-func runLoop(account cfAccount, recordsArray []record) {
+func runLoop(account *cfAccount, recordsArray []record) {
 	ipv4 := lookupIPv4()
 	ipv6 := lookupIPv6()
 
@@ -134,7 +133,7 @@ func getInterval(c *config.Config) time.Duration {
 	return configInterval
 }
 
-func getAccount(c *config.Config) cfAccount {
+func getAccount(c *config.Config) *cfAccount {
 	acc, err := c.Get("account")
 	if err != nil {
 		logError(err, "Unable to read account details from config", "fatal")
@@ -151,7 +150,7 @@ func getAccount(c *config.Config) cfAccount {
 	if err != nil {
 		logError(err, "Unable to read zone from config", "fatal")
 	}
-	account := cfAccount{
+	account := &cfAccount{
 		email:  email,
 		apiKey: apiKey,
 		zone:   zone,
@@ -161,7 +160,7 @@ func getAccount(c *config.Config) cfAccount {
 	return account
 }
 
-func getRecords(c *config.Config, a cfAccount) []record {
+func getRecords(c *config.Config, a *cfAccount) []record {
 	var records []record
 	recordsList, err := c.List("records")
 	if err != nil {
@@ -215,14 +214,13 @@ func (c *cfAccount) GetZoneID() {
 	var zr ZoneResponse
 
 	if err := json.Unmarshal(resp.Body(), &zr); err != nil {
-		spew.Dump(resp)
 		logError(err, "Unable to retrieve zone ID", "warn")
 	}
 
 	c.zoneID = zr.Result[0].ID
 }
 
-func (r *record) GetRecordDetails(c cfAccount) {
+func (r *record) GetRecordDetails(c *cfAccount) {
 
 	resp, _ := resty.R().
 		SetPathParams(map[string]string{
@@ -251,7 +249,7 @@ func (r *record) GetRecordDetails(c cfAccount) {
 	}
 }
 
-func (r *record) updateRecord(c cfAccount, ipAddr string) {
+func (r *record) updateRecord(c *cfAccount, ipAddr string) {
 	resp, err := resty.R().
 		SetPathParams(map[string]string{
 			"zone":   c.zoneID,
@@ -277,7 +275,7 @@ func (r *record) updateRecord(c cfAccount, ipAddr string) {
 	}
 }
 
-func (r *record) addRecord(c cfAccount, ipAddr string) {
+func (r *record) addRecord(c *cfAccount, ipAddr string) {
 	resp, err := resty.R().
 		SetPathParams(map[string]string{
 			"zone": c.zoneID,
@@ -290,7 +288,6 @@ func (r *record) addRecord(c cfAccount, ipAddr string) {
 			Content: ipAddr,
 		}).
 		Post("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records")
-	spew.Dump(resp)
 	if err != nil || resp.StatusCode() != 200 {
 		logError(err, "Unable to add record", "error")
 	} else {
