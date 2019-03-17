@@ -14,6 +14,14 @@ func logTimings(r *resty.Response, msg string) {
 	}).Debug(msg)
 }
 
+func logRecord(record string, recordType string, addr string, msg string) {
+	log.WithFields(log.Fields{
+		"record": record,
+		"type":   recordType,
+		"ipAddr": addr,
+	}).Info(msg)
+}
+
 func logError(err error, msg string, level string) {
 	switch level {
 	case "fatal":

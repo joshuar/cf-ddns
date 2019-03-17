@@ -66,7 +66,7 @@ func main() {
 	account := getAccount(cfg)
 	records := getRecords(cfg, account)
 
-	runLoop(account, records)
+	checkAndUpdate(account, records)
 
 	// loop for the configured interval
 	// fetch WAN address on every loop
@@ -76,39 +76,45 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			runLoop(account, records)
+			checkAndUpdate(account, records)
 		}
 	}
 }
 
-func runLoop(account *cfAccount, recordsArray []record) {
-	ipv4 := lookupIPv4()
-	ipv6 := lookupIPv6()
+func checkAndUpdate(account *cfAccount, recordsArray []record) {
+	ipv4 := lookupExternalIP("4")
+	ipv6 := lookupExternalIP("6")
 
 	for _, r := range recordsArray {
 		r.GetRecordDetails(account)
 		switch r.recordType {
 		case "A":
-			if r.ipAddr == "" {
+			if ipv4 == "" && r.ipAddr != "" {
+				r.deleteRecord(account)
+				break
+			} else if ipv4 == "" && r.ipAddr == "" {
+				break
+			}
+			if ipv4 != "" && r.ipAddr == "" {
 				r.addRecord(account, ipv4)
 			} else if r.ipAddr != ipv4 {
 				r.updateRecord(account, ipv4)
 			} else {
-				log.WithFields(log.Fields{
-					"record": r.name,
-					"ipAddr": r.ipAddr,
-				}).Info("no ipv4 update needed")
+				logRecord(r.name, r.recordType, r.ipAddr, "No IPv4 update needed")
 			}
 		case "AAAA":
-			if r.ipAddr == "" {
+			if ipv6 == "" && r.ipAddr != "" {
+				r.deleteRecord(account)
+				break
+			} else if ipv6 == "" && r.ipAddr == "" {
+				break
+			}
+			if ipv6 != "" && r.ipAddr == "" {
 				r.addRecord(account, ipv6)
 			} else if r.ipAddr != ipv6 {
 				r.updateRecord(account, ipv6)
 			} else {
-				log.WithFields(log.Fields{
-					"record": r.name,
-					"ipAddr": r.ipAddr,
-				}).Info("no ipv6 update needed")
+				logRecord(r.name, r.recordType, r.ipAddr, "No IPv6 update needed")
 			}
 		}
 	}
@@ -184,19 +190,20 @@ func getRecords(c *config.Config, a *cfAccount) []record {
 	return records
 }
 
-func lookupIPv4() string {
-	resp, _ := resty.R().Get(ipv4Checker)
-
-	logTimings(resp, "Retrieved WAN IPv4 Address")
-
-	return resp.String()
-}
-
-func lookupIPv6() string {
-	resp, _ := resty.R().Get(ipv6Checker)
-
-	logTimings(resp, "Retrieved WAN IPv6 Address")
-
+func lookupExternalIP(version string) string {
+	var resp *resty.Response
+	var err error
+	switch version {
+	case "4":
+		resp, err = resty.R().Get(ipv4Checker)
+	case "6":
+		resp, err = resty.R().Get(ipv6Checker)
+	}
+	logTimings(resp, "External IP Retrieval Timings")
+	if err != nil || resp.StatusCode() != 200 {
+		logError(err, "Unable to retrieve external IP address", "warn")
+		return ""
+	}
 	return resp.String()
 }
 
@@ -209,7 +216,7 @@ func (c *cfAccount) GetZoneID() {
 		SetHeader("X-Auth-Key", c.apiKey).
 		Get("https://api.cloudflare.com/client/v4/zones?name={zone}")
 
-	logTimings(resp, "Retrieved Zone ID")
+	logTimings(resp, "Zone ID Retrieval Timings")
 
 	var zr ZoneResponse
 
@@ -232,7 +239,7 @@ func (r *record) GetRecordDetails(c *cfAccount) {
 		SetHeader("X-Auth-Key", c.apiKey).
 		Get("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records?name={record}&type={recordType}")
 
-	logTimings(resp, "Retrieved Record Details")
+	logTimings(resp, "Record Retrieval Timings")
 
 	var rr RecordResponse
 
@@ -268,10 +275,11 @@ func (r *record) updateRecord(c *cfAccount, ipAddr string) {
 	} else {
 		log.WithFields(log.Fields{
 			"name":        r.name,
+			"type":        r.recordType,
 			"curr_ipAddr": r.ipAddr,
 			"new_ipAddr":  ipAddr,
 		}).Info("Updated record")
-		logTimings(resp, "Updated Record")
+		logTimings(resp, "Update Record Timings")
 	}
 }
 
@@ -291,10 +299,24 @@ func (r *record) addRecord(c *cfAccount, ipAddr string) {
 	if err != nil || resp.StatusCode() != 200 {
 		logError(err, "Unable to add record", "error")
 	} else {
-		log.WithFields(log.Fields{
-			"name":       r.name,
-			"new_ipAddr": ipAddr,
-		}).Info("Added record")
-		logTimings(resp, "Added Record")
+		logRecord(r.name, r.recordType, r.ipAddr, "Added Record")
+		logTimings(resp, "Add Record Timings")
+	}
+}
+
+func (r *record) deleteRecord(c *cfAccount) {
+	resp, err := resty.R().
+		SetPathParams(map[string]string{
+			"zone":   c.zoneID,
+			"record": r.ID,
+		}).
+		SetHeader("X-Auth-Email", c.email).
+		SetHeader("X-Auth-Key", c.apiKey).
+		Delete("https://api.cloudflare.com/client/v4/zones/{zone}/dns_records/{record}")
+	if err != nil || resp.StatusCode() != 200 {
+		logError(err, "Unable to delete record", "error")
+	} else {
+		logRecord(r.name, r.recordType, r.ipAddr, "Deleted Record")
+		logTimings(resp, "Delete Record Timings")
 	}
 }
