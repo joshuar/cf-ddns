@@ -17,6 +17,12 @@ const ipv4Checker = "http://ipv4.icanhazip.com"
 const ipv6Checker = "http://ipv6.icanhazip.com"
 const cfAPI = "https://api.cloudflare.com/client/v4/"
 
+type configuration struct {
+	details *config.Config
+	account *cfAccount
+	records []record
+}
+
 type cfAccount struct {
 	email, apiKey, zone, zoneID string
 }
@@ -31,7 +37,7 @@ func main() {
 
 	// parse command-line arguments
 	parser := argparse.NewParser("cf-ddns", "Cloudflare Dynamic DNS Client")
-	var configFile *string = parser.String("c", "config", &argparse.Options{Required: true, Help: "Path to config file"})
+	var configPath *string = parser.String("c", "config", &argparse.Options{Required: true, Help: "Path to config file"})
 	var logLevel *string = parser.Selector("d", "log-level", []string{"INFO", "DEBUG", "WARN"}, &argparse.Options{Required: false, Help: "Log level"})
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -51,34 +57,93 @@ func main() {
 	log.Debug("Parsed command-line arguments")
 
 	// read config file
-	file, err := ioutil.ReadFile(*configFile)
-	if err != nil {
-		logError(err, "Could not read config file", "fatal")
-	}
-	log.Debug("Read config file")
-	cfg, err := config.ParseYaml(string(file))
-	if err != nil {
-		logError(err, "Could not read config file", "fatal")
-	}
-	log.Debug("Parsed config file")
+	config := newConfig(configPath)
 
 	// create account and record details
-	account := getAccount(cfg)
-	records := getRecords(cfg, account)
+	config.getAccount()
+	config.getRecords()
 
-	checkAndUpdate(account, records)
+	checkAndUpdate(config.account, config.records)
 
 	// loop for the configured interval
 	// fetch WAN address on every loop
 	// update any records as needed
-	ticker := time.NewTicker(getInterval(cfg))
+	ticker := time.NewTicker(config.getInterval())
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			checkAndUpdate(account, records)
+			checkAndUpdate(config.account, config.records)
 		}
 	}
+}
+
+func newConfig(c *string) *configuration {
+	configFile, err := ioutil.ReadFile(*c)
+	if err != nil {
+		logError(err, "Could not read config file", "fatal")
+	}
+	log.Debug("Read config file")
+	configObject, err := config.ParseYaml(string(configFile))
+	if err != nil {
+		logError(err, "Could not read config file", "fatal")
+	}
+	log.Debug("Parsed config file")
+	config := &configuration{
+		details: configObject,
+	}
+	return config
+}
+
+func (cfg *configuration) getAccount() {
+	acc, err := cfg.details.Get("account")
+	if err != nil {
+		logError(err, "Unable to read account details from config", "fatal")
+	}
+	email, err := acc.String("email")
+	if err != nil {
+		logError(err, "Unable to read email from config", "fatal")
+	}
+	apiKey, err := acc.String("apiKey")
+	if err != nil {
+		logError(err, "Unable to read apiKey from config", "fatal")
+	}
+	zone, err := acc.String("zone")
+	if err != nil {
+		logError(err, "Unable to read zone from config", "fatal")
+	}
+	var account = &cfAccount{
+		email:  email,
+		apiKey: apiKey,
+		zone:   zone,
+	}
+	account.GetZoneID()
+	log.Debug("Parsed account from config")
+	cfg.account = account
+}
+
+func (cfg *configuration) getRecords() {
+	var records []record
+	recordsList, err := cfg.details.List("records")
+	if err != nil {
+		logError(err, "Unable to read records to update from config", "fatal")
+	}
+	for _, name := range recordsList {
+		ARecord := record{
+			name:       name.(string),
+			recordType: "A",
+		}
+		ARecord.GetRecordDetails(cfg.account)
+		records = append(records, ARecord)
+		AAAARecord := record{
+			name:       name.(string),
+			recordType: "AAAA",
+		}
+		AAAARecord.GetRecordDetails(cfg.account)
+		records = append(records, AAAARecord)
+	}
+	log.Debug("Parsed all records from config")
+	cfg.records = records
 }
 
 func checkAndUpdate(account *cfAccount, recordsArray []record) {
@@ -120,8 +185,8 @@ func checkAndUpdate(account *cfAccount, recordsArray []record) {
 	}
 }
 
-func getInterval(c *config.Config) time.Duration {
-	i, err := c.String("interval")
+func (cfg *configuration) getInterval() time.Duration {
+	i, err := cfg.details.String("interval")
 	if err != nil {
 		logError(err, "Unable to parse interval from config, using default of 1h", "warn")
 		defaultInterval, _ := time.ParseDuration("1h")
@@ -137,57 +202,6 @@ func getInterval(c *config.Config) time.Duration {
 		"interval": i,
 	}).Debug("Parsed interval from config")
 	return configInterval
-}
-
-func getAccount(c *config.Config) *cfAccount {
-	acc, err := c.Get("account")
-	if err != nil {
-		logError(err, "Unable to read account details from config", "fatal")
-	}
-	email, err := acc.String("email")
-	if err != nil {
-		logError(err, "Unable to read email from config", "fatal")
-	}
-	apiKey, err := acc.String("apiKey")
-	if err != nil {
-		logError(err, "Unable to read apiKey from config", "fatal")
-	}
-	zone, err := acc.String("zone")
-	if err != nil {
-		logError(err, "Unable to read zone from config", "fatal")
-	}
-	account := &cfAccount{
-		email:  email,
-		apiKey: apiKey,
-		zone:   zone,
-	}
-	account.GetZoneID()
-	log.Debug("Parsed account from config")
-	return account
-}
-
-func getRecords(c *config.Config, a *cfAccount) []record {
-	var records []record
-	recordsList, err := c.List("records")
-	if err != nil {
-		logError(err, "Unable to read records to update from config", "fatal")
-	}
-	for _, name := range recordsList {
-		ARecord := record{
-			name:       name.(string),
-			recordType: "A",
-		}
-		ARecord.GetRecordDetails(a)
-		records = append(records, ARecord)
-		AAAARecord := record{
-			name:       name.(string),
-			recordType: "AAAA",
-		}
-		AAAARecord.GetRecordDetails(a)
-		records = append(records, AAAARecord)
-	}
-	log.Debug("Parsed all records from config")
-	return records
 }
 
 func lookupExternalIP(version string) string {
@@ -222,9 +236,10 @@ func (c *cfAccount) GetZoneID() {
 
 	if err := json.Unmarshal(resp.Body(), &zr); err != nil {
 		logError(err, "Unable to retrieve zone ID", "warn")
+		c.zoneID = ""
+	} else {
+		c.zoneID = zr.Result[0].ID
 	}
-
-	c.zoneID = zr.Result[0].ID
 }
 
 func (r *record) GetRecordDetails(c *cfAccount) {
