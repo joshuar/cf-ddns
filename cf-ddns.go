@@ -221,6 +221,7 @@ func isConnected(connected chan bool) {
 			break
 		}
 	}
+	ticker.Stop()
 	close(connected)
 }
 
