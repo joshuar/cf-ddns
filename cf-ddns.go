@@ -69,7 +69,7 @@ func main() {
 	config.getAccount()
 	config.getRecords()
 
-	checkAndUpdate(config.account, config.records)
+	config.checkAndUpdate()
 
 	// loop for the configured interval
 	// fetch WAN address on every loop
@@ -80,7 +80,7 @@ func main() {
 		connected := make(chan bool)
 		go isConnected(connected)
 		<-connected
-		checkAndUpdate(config.account, config.records)
+		config.checkAndUpdate()
 	}
 }
 
@@ -152,38 +152,38 @@ func (cfg *configuration) getRecords() {
 	cfg.records = records
 }
 
-func checkAndUpdate(account *cfAccount, recordsArray []record) {
+func (cfg *configuration) checkAndUpdate() {
 	ipv4 := lookupExternalIP("4")
 	ipv6 := lookupExternalIP("6")
 
-	for _, r := range recordsArray {
-		r.GetRecordDetails(account)
+	for _, r := range cfg.records {
+		r.GetRecordDetails(cfg.account)
 		switch r.recordType {
 		case "A":
 			if ipv4 == "" && r.ipAddr != "" {
-				r.deleteRecord(account)
+				r.deleteRecord(cfg.account)
 				break
 			} else if ipv4 == "" && r.ipAddr == "" {
 				break
 			}
 			if ipv4 != "" && r.ipAddr == "" {
-				r.addRecord(account, ipv4)
+				r.addRecord(cfg.account, ipv4)
 			} else if r.ipAddr != ipv4 {
-				r.updateRecord(account, ipv4)
+				r.updateRecord(cfg.account, ipv4)
 			} else {
 				logRecord(r.name, r.recordType, r.ipAddr, "No IPv4 update needed")
 			}
 		case "AAAA":
 			if ipv6 == "" && r.ipAddr != "" {
-				r.deleteRecord(account)
+				r.deleteRecord(cfg.account)
 				break
 			} else if ipv6 == "" && r.ipAddr == "" {
 				break
 			}
 			if ipv6 != "" && r.ipAddr == "" {
-				r.addRecord(account, ipv6)
+				r.addRecord(cfg.account, ipv6)
 			} else if r.ipAddr != ipv6 {
-				r.updateRecord(account, ipv6)
+				r.updateRecord(cfg.account, ipv6)
 			} else {
 				logRecord(r.name, r.recordType, r.ipAddr, "No IPv6 update needed")
 			}
