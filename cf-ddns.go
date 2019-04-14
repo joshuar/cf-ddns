@@ -15,6 +15,7 @@ import (
 
 const ipv4Checker = "http://ipv4.icanhazip.com"
 const ipv6Checker = "http://ipv6.icanhazip.com"
+const connChecker = "http://clients3.google.com/generate_204"
 const cfAPI = "https://api.cloudflare.com/client/v4/"
 
 type configuration struct {
@@ -59,6 +60,11 @@ func main() {
 	// read config file
 	config := newConfig(configPath)
 
+	connected := make(chan bool)
+
+	// check we've got a connection before configuring further
+	go isConnected(connected)
+	<-connected
 	// create account and record details
 	config.getAccount()
 	config.getRecords()
@@ -68,13 +74,13 @@ func main() {
 	// loop for the configured interval
 	// fetch WAN address on every loop
 	// update any records as needed
-	ticker := time.NewTicker(config.getInterval())
-	defer ticker.Stop()
 	for {
-		select {
-		case <-ticker.C:
-			checkAndUpdate(config.account, config.records)
-		}
+		timer := time.NewTimer(config.getInterval())
+		<-timer.C
+		connected := make(chan bool)
+		go isConnected(connected)
+		<-connected
+		checkAndUpdate(config.account, config.records)
 	}
 }
 
@@ -202,6 +208,20 @@ func (cfg *configuration) getInterval() time.Duration {
 		"interval": i,
 	}).Debug("Parsed interval from config")
 	return configInterval
+}
+
+func isConnected(connected chan bool) {
+	ticker := time.NewTicker(1000 * time.Millisecond)
+	for range ticker.C {
+		resp, err := resty.R().Get(connChecker)
+		if err != nil || resp.StatusCode() != 204 {
+			log.Debug("Not connected")
+		} else {
+			log.Debug("Connected")
+			break
+		}
+	}
+	close(connected)
 }
 
 func lookupExternalIP(version string) string {
