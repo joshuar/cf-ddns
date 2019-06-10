@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -18,6 +19,7 @@ const ipv4Checker = "http://ipv4.icanhazip.com"
 const ipv6Checker = "http://ipv6.icanhazip.com"
 const connChecker = "http://clients3.google.com/generate_204"
 const cfAPI = "https://api.cloudflare.com/client/v4/"
+const versionString = "0.1-beta"
 
 type configuration struct {
 	details *config.Config
@@ -39,9 +41,14 @@ func main() {
 
 	// parse command-line arguments
 	parser := argparse.NewParser("cf-ddns", "Cloudflare Dynamic DNS Client")
-	var configPath *string = parser.String("c", "config", &argparse.Options{Required: true, Help: "Path to config file"})
+	var configPath *string = parser.String("c", "config", &argparse.Options{Required: false, Help: "Path to config file"})
 	var logLevel *string = parser.Selector("d", "log-level", []string{"INFO", "DEBUG", "WARN"}, &argparse.Options{Required: false, Help: "Log level"})
+	var version *bool = parser.Flag("v", "version", &argparse.Options{Required: false, Help: "Version"})
 	err := parser.Parse(os.Args)
+	if *version {
+		fmt.Printf("%v\n", versionString)
+		os.Exit(0)
+	}
 	if err != nil {
 		log.Fatal(parser.Usage(err))
 	}
