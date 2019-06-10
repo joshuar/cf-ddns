@@ -1,5 +1,7 @@
 github.com/akamensky/argparse v0.0.0-20190115094700-b33e05fb8d69 h1:5LcXlQGiPH1JNsR4IcKpBGNSY/QQdhHUercX+pHP2rU=
 github.com/akamensky/argparse v0.0.0-20190115094700-b33e05fb8d69/go.mod h1:pdh+2piXurh466J9tqIqq39/9GO2Y8nZt6Cxzu18T9A=
+github.com/cenkalti/backoff v2.1.1+incompatible h1:tKJnvO2kl0zmb/jA5UKAt4VoEVw1qxKWjE/Bpp46npY=
+github.com/cenkalti/backoff v2.1.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=

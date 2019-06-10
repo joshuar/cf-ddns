@@ -9,6 +9,7 @@ import (
 	resty "gopkg.in/resty.v1"
 
 	"github.com/akamensky/argparse"
+	"github.com/cenkalti/backoff"
 	"github.com/olebedev/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -211,17 +212,19 @@ func (cfg *configuration) getInterval() time.Duration {
 }
 
 func isConnected(connected chan bool) {
-	ticker := time.NewTicker(1000 * time.Millisecond)
-	for range ticker.C {
+	connectionCheck := func() error {
 		resp, err := resty.R().Get(connChecker)
 		if err != nil || resp.StatusCode() != 204 {
 			log.Debug("Not connected")
-		} else {
-			log.Debug("Connected")
-			break
+			return err
 		}
+		log.Debug("Connected")
+		return nil
 	}
-	ticker.Stop()
+	err := backoff.Retry(connectionCheck, backoff.NewExponentialBackOff())
+	if err != nil {
+		logError(err, "Problem with connection backoff", "error")
+	}
 	close(connected)
 }
 
