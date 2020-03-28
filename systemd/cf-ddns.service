@@ -1,0 +1,14 @@
+[Unit]
+Description=Start cf-ddns client
+Documentation=https://github.com/joshuar/cf-ddns
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cf-ddns -c /etc/cf-ddns.yml
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
