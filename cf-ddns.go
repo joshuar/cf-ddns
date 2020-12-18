@@ -15,8 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const ipv4Checker = "http://ipv4.icanhazip.com"
-const ipv6Checker = "http://ipv6.icanhazip.com"
+const ipv4Checker = "https://api.ipify.org"
+const ipv6Checker = "https://api64.ipify.org"
 const connChecker = "http://clients3.google.com/generate_204"
 const cfAPI = "https://api.cloudflare.com/client/v4/"
 const versionString = "0.1-beta"
