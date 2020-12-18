@@ -19,7 +19,7 @@ const ipv4Checker = "https://api.ipify.org"
 const ipv6Checker = "https://api64.ipify.org"
 const connChecker = "http://clients3.google.com/generate_204"
 const cfAPI = "https://api.cloudflare.com/client/v4/"
-const versionString = "0.1-beta"
+const versionString = "0.2-beta"
 
 type configuration struct {
 	details *config.Config
