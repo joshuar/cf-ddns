@@ -49,7 +49,7 @@ nfpms:
     # GoReleaser will automatically add the binaries.
     contents:
       # Basic file that applies to all packagers
-      - src: cf-ddns.yml
+      - src: configs/cf-ddns.yml
         dst: /etc/cf-ddns/cf-ddns.yml
         type: "config|noreplace"
 
