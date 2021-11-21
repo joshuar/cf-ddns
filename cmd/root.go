@@ -81,9 +81,9 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.cf-ddns.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "c", "config file (default is $HOME/.cf-ddns.yaml)")
 	rootCmd.Flags().BoolVarP(&debugFlag, "debug", "d", false, "debug output")
-	rootCmd.Flags().BoolVarP(&profileFlag, "profile", "", false, "enable profiling")
+	rootCmd.Flags().BoolVarP(&profileFlag, "profile", "p", false, "enable profiling")
 }
 
 // initConfig reads in config file and ENV variables if set.
