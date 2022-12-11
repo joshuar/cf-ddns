@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 before:
   hooks:
     - go mod tidy
@@ -33,7 +34,7 @@ nfpms:
     maintainer: Josh Rich <joshua.rich@gmail.com>
     description: A Dynamic DNS client for Cloudflare.
     license: MIT
-    release: 1
+    release: "1"
 
     formats:
       - deb
@@ -57,3 +58,9 @@ nfpms:
       - src: systemd/cf-ddns.service
         dst: /usr/lib/systemd/system/cf-ddns.service
         type: config
+
+    scripts:
+      # preinstall: "scripts/preinstall.sh"
+      postinstall: "scripts/postinstall.sh"
+      # preremove: "scripts/preremove.sh"
+      # postremove: "scripts/postremove.sh"
