@@ -6,7 +6,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/cf-ddns
+ExecStart=/usr/bin/cf-ddns
 ProtectSystem=strict
 ProtectHome=yes
 
