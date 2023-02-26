@@ -51,8 +51,9 @@ var rootCmd = &cobra.Command{
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		cfAccount := cloudflare.GetAccountDetails()
-		cfAccount.CheckForUpdates()
+		cfDetails := cloudflare.NewCloudflare()
+
+		cfDetails.CheckAndUpdate()
 
 		ticker := time.NewTicker(getIntervalFromConfig())
 		done := make(chan bool)
@@ -62,7 +63,7 @@ var rootCmd = &cobra.Command{
 				return
 			case <-ticker.C:
 				log.Debug("Checking for external IP update...")
-				cfAccount.CheckForUpdates()
+				cfDetails.CheckAndUpdate()
 			}
 		}
 	},

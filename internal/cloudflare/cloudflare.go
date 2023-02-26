@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,173 +16,98 @@ limitations under the License.
 package cloudflare
 
 import (
-	"encoding/json"
-	"sync"
+	"context"
 
 	"github.com/joshuar/cf-ddns/internal/iplookup"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/go-resty/resty/v2"
+	cf "github.com/cloudflare/cloudflare-go"
 	"github.com/spf13/viper"
 )
 
-const cloudflareAPI = "https://api.cloudflare.com/client/v4/"
-
-type cloudflareAccount struct {
-	email, apiKey, zone, zoneID string
-	records                     map[string]*dnsRecord
+type cloudflare struct {
+	api    *cf.API
+	zoneID string
+	record map[string]*dnsRecord
 }
 
 type dnsRecord struct {
 	name, id, recordType, IpAddr string
 }
 
-// GetAccountDetails reads the Cloudflare account details from the config file
-// and populates a struct for reference
-func GetAccountDetails() *cloudflareAccount {
-	account := &cloudflareAccount{
-		email:   viper.GetString("account.email"),
-		apiKey:  viper.GetString("account.apiKey"),
-		zone:    viper.GetString("account.zone"),
-		records: make(map[string]*dnsRecord),
-	}
-	account.getZoneID()
-	account.getCurrentRecords()
-	return account
-}
-
-func (c *cloudflareAccount) getZoneID() {
-	client := resty.New().SetLogger(&log.Logger{})
-	resp, err := client.R().
-		SetPathParams(map[string]string{
-			"zone": c.zone,
-		}).
-		SetHeader("X-Auth-Email", c.email).
-		SetHeader("X-Auth-Key", c.apiKey).
-		Get(cloudflareAPI + "zones?name={zone}")
+func NewCloudflare() *cloudflare {
+	api, err := cf.New(
+		viper.GetString("account.apiKey"),
+		viper.GetString("account.email"))
 	if err != nil {
-		log.Fatalf("Unable to send request %s for ID for zone: %v", resp.Request.URL, err)
+		log.Fatalf("Unable to establish Cloudflare API connection: %v", err)
 	}
-	var zr ZoneResponse
 
-	if err := json.Unmarshal(resp.Body(), &zr); err != nil {
-		log.Fatalf("Unable to parse zone ID response: %v", err)
-	} else {
-		if !zr.Success {
-			log.Fatalf("Failed to get zone ID: request returned error code %d with message '%s'", zr.Errors[0].Code, zr.Errors[0].Message)
-		}
-		if zr.ResultInfo.Count == 0 {
-			log.Fatalf("No zone ID returned for zone: %s.  Check config and try again.", c.zone)
-		}
-		c.zoneID = zr.Result[0].ID
+	id, err := api.ZoneIDByName(viper.GetString("account.zone"))
+	if err != nil {
+		log.Fatalf("Unable to retrieve zone details from Cloudflare API: %v", err)
 	}
-}
 
-func (c *cloudflareAccount) getCurrentRecords() {
-	var wg sync.WaitGroup
-	log.Debug("Fetching current records from Cloudflare...")
+	ctx := context.Background()
+	record := make(map[string]*dnsRecord)
+
 	for _, r := range getRecordsFromConfig() {
-		for _, rt := range []string{"A", "AAAA"} {
-			wg.Add(1)
-			r := &dnsRecord{
-				name:       r,
-				recordType: rt,
+		log.Debugf("Getting DNS records for %s", r)
+		recs, _, err := api.ListDNSRecords(
+			ctx,
+			cf.ZoneIdentifier(id),
+			cf.ListDNSRecordsParams{Name: r})
+		if err != nil {
+			log.Fatalf("Unable to retrieve record details for %s from Cloudflare API: %v", r, err)
+		}
+		if recs != nil {
+			for _, r := range recs {
+				record[r.ID] = &dnsRecord{
+					name:       r.Name,
+					IpAddr:     r.Content,
+					recordType: r.Type,
+				}
 			}
-			go func(rt string) {
-				defer wg.Done()
-				c.records[rt] = c.getDNSRecord(r)
-			}(rt)
-		}
-		wg.Wait()
-	}
-}
-
-func (c *cloudflareAccount) getDNSRecord(r *dnsRecord) *dnsRecord {
-	client := resty.New().SetLogger(&log.Logger{})
-	client.SetRetryCount(3)
-
-	resp, err := client.R().
-		SetPathParams(map[string]string{
-			"zone":       c.zoneID,
-			"record":     r.name,
-			"recordType": r.recordType,
-		}).
-		SetHeader("X-Auth-Email", c.email).
-		SetHeader("X-Auth-Key", c.apiKey).
-		Get(cloudflareAPI + "zones/{zone}/dns_records?name={record}&type={recordType}")
-	if err != nil {
-		log.Warnf("Unable to send request %s for dns record type: %v", resp.Request.URL, err)
-		return nil
-	}
-
-	var rr RecordResponse
-	if err := json.Unmarshal(resp.Body(), &rr); err != nil {
-		log.Warnf("Unable to parse dns record response for %s (type %s): %v", r.name, r.recordType, err)
-		return nil
-	}
-	if !rr.Success {
-		log.Warnf("Failed to get dns record: request returned error code %d with message '%s'", rr.Errors[0].Code, rr.Errors[0].Message)
-		return nil
-	} else {
-		if rr.ResultInfo.Count > 0 {
-			r.id = rr.Result[0].ID
-			r.IpAddr = rr.Result[0].Content
-			log.Debugf("Found %s record for %s with address %s", r.recordType, r.name, r.IpAddr)
-			return r
 		} else {
-			return nil
+			log.Warnf("Record %s has no matching details in Cloudflare zone", r)
 		}
+	}
+
+	return &cloudflare{
+		api:    api,
+		zoneID: id,
+		record: record,
 	}
 }
 
-func (c *cloudflareAccount) CheckForUpdates() {
+func (c *cloudflare) CheckAndUpdate() {
 	addr := iplookup.LookupExternalIP()
-	for t, r := range c.records {
-		if r == nil {
-			break
-		}
-		switch t {
+	for id, details := range c.record {
+		switch details.recordType {
 		case "A":
-			if r.IpAddr != addr.Ipv4 {
-				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", r.name, t, r.IpAddr, addr.Ipv4)
-				r.IpAddr = addr.Ipv4
-				c.setDNSRecord(r)
+			if details.IpAddr != addr.Ipv4 {
+				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.recordType, details.IpAddr, addr.Ipv4)
+				c.setDNSRecord(id, details.recordType, addr.Ipv4)
 			}
 		case "AAAA":
-			if r.IpAddr != addr.Ipv6 {
-				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", r.name, t, r.IpAddr, addr.Ipv6)
-				r.IpAddr = addr.Ipv6
-				c.setDNSRecord(r)
+			if details.IpAddr != addr.Ipv6 {
+				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.recordType, details.IpAddr, addr.Ipv6)
+				c.setDNSRecord(id, details.recordType, addr.Ipv6)
 			}
 		}
 	}
 }
 
-func (c *cloudflareAccount) setDNSRecord(record *dnsRecord) {
-	client := resty.New().SetLogger(&log.Logger{})
-	client.SetRetryCount(3)
-
-	resp, err := client.R().
-		SetPathParams(map[string]string{
-			"zone":   c.zoneID,
-			"record": record.id,
-		}).
-		SetHeader("X-Auth-Email", c.email).
-		SetHeader("X-Auth-Key", c.apiKey).
-		SetBody(map[string]interface{}{
-			"type":    record.recordType,
-			"name":    record.name,
-			"content": record.IpAddr,
-			"ttl":     1,
-		}).
-		Put(cloudflareAPI + "zones/{zone}/dns_records/{record}")
+func (c *cloudflare) setDNSRecord(id string, recordType string, addr string) {
+	_, err := c.api.CreateDNSRecord(
+		context.Background(),
+		cf.ResourceIdentifier(id),
+		cf.CreateDNSRecordParams{
+			Content: addr,
+			Type:    recordType,
+		})
 	if err != nil {
-		log.Warnf("Unable to send request %s for dns record type: %v", resp.Request.URL, err)
-	}
-	if resp.StatusCode() == 200 {
-		log.Infof("Updated %s record for %s to %s", record.recordType, record.name, record.IpAddr)
-	} else {
-		log.Warnf("Unable to update %s record for %s: %v", record.recordType, record.name, resp.Status())
+		log.Errorf("Unable to update record %s: %v", id, err)
 	}
 }
 
