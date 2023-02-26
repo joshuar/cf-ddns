@@ -52,7 +52,7 @@ func NewCloudflare() *cloudflare {
 	record := make(map[string]*dnsRecord)
 
 	for _, r := range getRecordsFromConfig() {
-		log.Debugf("Getting DNS records for %s", r)
+		log.Debugf("Getting DNS record(s) for %s", r)
 		recs, _, err := api.ListDNSRecords(
 			ctx,
 			cf.ZoneIdentifier(id),
@@ -69,7 +69,48 @@ func NewCloudflare() *cloudflare {
 				}
 			}
 		} else {
-			log.Warnf("Record %s has no matching details in Cloudflare zone", r)
+			log.Warnf("%s has no matching DNS record(s) in Cloudflare zone, creating a new one", r)
+			addr := iplookup.LookupExternalIP()
+			if addr.Ipv4 != "" {
+				res, err := api.CreateDNSRecord(
+					ctx,
+					cf.ZoneIdentifier(id),
+					cf.CreateDNSRecordParams{
+						Name:    r,
+						Content: addr.Ipv4,
+						Type:    "A",
+					})
+				if err != nil {
+					log.Warnf("Unable to create new IPv4 record for %s: %v", r, err)
+				} else {
+					log.Infof("Created new IPv4 record for %s", r)
+				}
+				record[res.Result.ID] = &dnsRecord{
+					name:       res.Result.Name,
+					IpAddr:     res.Result.Content,
+					recordType: res.Result.Type,
+				}
+			}
+			if addr.Ipv6 != "" {
+				res, err := api.CreateDNSRecord(
+					ctx,
+					cf.ZoneIdentifier(id),
+					cf.CreateDNSRecordParams{
+						Name:    r,
+						Content: addr.Ipv6,
+						Type:    "AAAA",
+					})
+				if err != nil {
+					log.Warnf("Unable to create new IPv4 record for %s: %v", r, err)
+				} else {
+					log.Infof("Created new IPv4 record for %s", r)
+				}
+				record[res.Result.ID] = &dnsRecord{
+					name:       res.Result.Name,
+					IpAddr:     res.Result.Content,
+					recordType: res.Result.Type,
+				}
+			}
 		}
 	}
 

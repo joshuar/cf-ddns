@@ -53,8 +53,6 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfDetails := cloudflare.NewCloudflare()
 
-		cfDetails.CheckAndUpdate()
-
 		ticker := time.NewTicker(getIntervalFromConfig())
 		done := make(chan bool)
 		for {
