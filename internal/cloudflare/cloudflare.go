@@ -26,16 +26,17 @@ import (
 )
 
 type cloudflare struct {
-	api    *cf.API
-	zoneID string
-	record map[string]*dnsRecord
+	api     *cf.API
+	zoneID  string
+	records map[string]*dnsRecord
 }
 
 type dnsRecord struct {
-	name, id, recordType, IpAddr string
+	name, iptype, ipaddr string
 }
 
 func NewCloudflare() *cloudflare {
+	log.Debug("Establishing API connection")
 	api, err := cf.New(
 		viper.GetString("account.apiKey"),
 		viper.GetString("account.email"))
@@ -43,119 +44,95 @@ func NewCloudflare() *cloudflare {
 		log.Fatalf("Unable to establish Cloudflare API connection: %v", err)
 	}
 
+	log.Debug("Retrieving Zone ID")
 	id, err := api.ZoneIDByName(viper.GetString("account.zone"))
 	if err != nil {
-		log.Fatalf("Unable to retrieve zone details from Cloudflare API: %v", err)
+		log.Fatalf("Unable to retrieve zone ID from Cloudflare API: %v", err)
 	}
 
-	ctx := context.Background()
-	record := make(map[string]*dnsRecord)
+	cfDetails := &cloudflare{
+		api:     api,
+		zoneID:  id,
+		records: make(map[string]*dnsRecord),
+	}
 
-	for _, r := range getRecordsFromConfig() {
+	if viper.GetStringSlice("records") == nil {
+		log.Fatal("No records specified in config, nothing to do")
+	}
+
+	for _, r := range viper.GetStringSlice("records") {
 		log.Debugf("Getting DNS record(s) for %s", r)
 		recs, _, err := api.ListDNSRecords(
-			ctx,
-			cf.ZoneIdentifier(id),
+			context.Background(),
+			cf.ZoneIdentifier(cfDetails.zoneID),
 			cf.ListDNSRecordsParams{Name: r})
 		if err != nil {
 			log.Fatalf("Unable to retrieve record details for %s from Cloudflare API: %v", r, err)
 		}
 		if recs != nil {
 			for _, r := range recs {
-				record[r.ID] = &dnsRecord{
-					name:       r.Name,
-					IpAddr:     r.Content,
-					recordType: r.Type,
+				cfDetails.records[r.ID] = &dnsRecord{
+					name:   r.Name,
+					ipaddr: r.Content,
+					iptype: r.Type,
 				}
 			}
 		} else {
-			log.Warnf("%s has no matching DNS record(s) in Cloudflare zone, creating a new one", r)
+			log.Warnf("%s has no matching DNS record(s) in Cloudflare zone, creating them", r)
 			addr := iplookup.LookupExternalIP()
-			if addr.Ipv4 != "" {
-				res, err := api.CreateDNSRecord(
-					ctx,
-					cf.ZoneIdentifier(id),
-					cf.CreateDNSRecordParams{
-						Name:    r,
-						Content: addr.Ipv4,
-						Type:    "A",
-					})
-				if err != nil {
-					log.Warnf("Unable to create new IPv4 record for %s: %v", r, err)
-				} else {
-					log.Infof("Created new IPv4 record for %s", r)
+			if addr.IPv4 != nil {
+				record := &dnsRecord{
+					name:   r,
+					iptype: "A",
+					ipaddr: addr.IPv4.String(),
 				}
-				record[res.Result.ID] = &dnsRecord{
-					name:       res.Result.Name,
-					IpAddr:     res.Result.Content,
-					recordType: res.Result.Type,
-				}
+				cfDetails.setDNSRecord(record)
 			}
-			if addr.Ipv6 != "" {
-				res, err := api.CreateDNSRecord(
-					ctx,
-					cf.ZoneIdentifier(id),
-					cf.CreateDNSRecordParams{
-						Name:    r,
-						Content: addr.Ipv6,
-						Type:    "AAAA",
-					})
-				if err != nil {
-					log.Warnf("Unable to create new IPv4 record for %s: %v", r, err)
-				} else {
-					log.Infof("Created new IPv4 record for %s", r)
+			if addr.IPv6 != nil {
+				record := &dnsRecord{
+					name:   r,
+					iptype: "AAAA",
+					ipaddr: addr.IPv6.String(),
 				}
-				record[res.Result.ID] = &dnsRecord{
-					name:       res.Result.Name,
-					IpAddr:     res.Result.Content,
-					recordType: res.Result.Type,
-				}
+				cfDetails.setDNSRecord(record)
 			}
 		}
 	}
 
-	return &cloudflare{
-		api:    api,
-		zoneID: id,
-		record: record,
-	}
+	return cfDetails
 }
 
 func (c *cloudflare) CheckAndUpdate() {
 	addr := iplookup.LookupExternalIP()
-	for id, details := range c.record {
-		switch details.recordType {
-		case "A":
-			if details.IpAddr != addr.Ipv4 {
-				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.recordType, details.IpAddr, addr.Ipv4)
-				c.setDNSRecord(id, details.recordType, addr.Ipv4)
-			}
-		case "AAAA":
-			if details.IpAddr != addr.Ipv6 {
-				log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.recordType, details.IpAddr, addr.Ipv6)
-				c.setDNSRecord(id, details.recordType, addr.Ipv6)
+	if addr != nil {
+		for recordID, details := range c.records {
+			switch details.iptype {
+			case "A":
+				if details.ipaddr != addr.IPv4.String() {
+					log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.iptype, details.ipaddr, addr.IPv4.String())
+					c.setDNSRecord(c.records[recordID])
+				}
+			case "AAAA":
+				if details.ipaddr != addr.IPv6.String() {
+					log.Debugf("Record %s (type %s) needs updating.  Previously %s, now %s", details.name, details.iptype, details.ipaddr, addr.IPv6.String())
+					c.setDNSRecord(c.records[recordID])
+				}
 			}
 		}
 	}
 }
 
-func (c *cloudflare) setDNSRecord(id string, recordType string, addr string) {
+func (c *cloudflare) setDNSRecord(record *dnsRecord) {
 	_, err := c.api.CreateDNSRecord(
 		context.Background(),
-		cf.ResourceIdentifier(id),
+		cf.ResourceIdentifier(c.zoneID),
 		cf.CreateDNSRecordParams{
-			Content: addr,
-			Type:    recordType,
+			Name:    record.name,
+			Content: record.ipaddr,
+			Type:    record.iptype,
+			TTL:     1,
 		})
 	if err != nil {
-		log.Errorf("Unable to update record %s: %v", id, err)
+		log.Errorf("Unable to update record %s (type %s, content %s): %v", record.name, record.iptype, record.ipaddr, err)
 	}
-}
-
-func getRecordsFromConfig() []string {
-	records := viper.GetStringSlice("records")
-	if records == nil {
-		log.Fatal("No records to check found in config? Nothing to do.")
-	}
-	return records
 }
