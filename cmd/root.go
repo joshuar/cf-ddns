@@ -33,6 +33,27 @@ var (
 	profileFlag bool
 )
 
+var cmdDaemon = &cobra.Command{
+	Use:   "daemon",
+	Short: "Run as a daemon",
+	Long:  "Run cf-ddns in daemon mode, updating based on timer defined in config.",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfDetails := cloudflare.NewCloudflare()
+
+		ticker := time.NewTicker(getIntervalFromConfig())
+		done := make(chan bool)
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				log.Debug("Checking for external IP update...")
+				cfDetails.CheckAndUpdate()
+			}
+		}
+	},
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "cf-ddns",
@@ -52,18 +73,7 @@ var rootCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		cfDetails := cloudflare.NewCloudflare()
-
-		ticker := time.NewTicker(getIntervalFromConfig())
-		done := make(chan bool)
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				log.Debug("Checking for external IP update...")
-				cfDetails.CheckAndUpdate()
-			}
-		}
+		cfDetails.CheckAndUpdate()
 	},
 }
 
@@ -81,8 +91,9 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "/etc/cf-ddns/cf-ddns.yml", "config file (default is /etc/cf-ddns/cf-ddns.yaml)")
-	rootCmd.Flags().BoolVarP(&debugFlag, "debug", "d", false, "debug output (default is false)")
-	rootCmd.Flags().BoolVarP(&profileFlag, "profile", "p", false, "enable profiling (default is false)")
+	rootCmd.PersistentFlags().BoolVarP(&debugFlag, "debug", "d", false, "debug output (default is false)")
+	rootCmd.PersistentFlags().BoolVarP(&profileFlag, "profile", "p", false, "enable profiling (default is false)")
+	rootCmd.AddCommand(cmdDaemon)
 }
 
 // initConfig reads in config file and ENV variables if set.

@@ -54,13 +54,22 @@ nfpms:
         dst: /etc/cf-ddns/cf-ddns.yml
         type: "config|noreplace"
 
-      # Simple config file
+      # Daemon mode systemd service
       - src: systemd/cf-ddns.service
         dst: /usr/lib/systemd/system/cf-ddns.service
         type: config
 
-    scripts:
+      # One-shot mode with systemd timer
+      - src: systemd/cf-ddns-oneshot.service
+        dst: /usr/lib/systemd/system/cf-ddns-oneshot.service
+        type: config
+
+      - src: systemd/cf-ddns-oneshot.timer
+        dst: /usr/lib/systemd/system/cf-ddns-oneshot.timer
+        type: config
+
+    # scripts:
       # preinstall: "scripts/preinstall.sh"
-      postinstall: "scripts/postinstall.sh"
+      # postinstall: "scripts/postinstall.sh"
       # preremove: "scripts/preremove.sh"
       # postremove: "scripts/postremove.sh"

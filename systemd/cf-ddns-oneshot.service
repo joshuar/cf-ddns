@@ -1,12 +1,12 @@
 [Unit]
-Description=Start cf-ddns client
+Description=Run cf-ddns client
 Documentation=https://github.com/joshuar/cf-ddns
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
-ExecStart=/usr/bin/cf-ddns daemon
+Type=oneshot
+ExecStart=/usr/bin/cf-ddns
 ProtectSystem=strict
 ProtectHome=yes
 

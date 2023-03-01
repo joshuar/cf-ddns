@@ -17,7 +17,7 @@ file.
 
 - Simple (YAML) configuration. Just specify your account details, domain and a
   list of records to update.  
-- Runs on a defined interval (no need for cron scheduling).
+- Runs on a defined interval (no need for cron scheduling) or as a one-shot execution.
 - Fail-over external IP service checks.  
 
 ## Installation
@@ -44,17 +44,34 @@ Create a configuration file; see the example in this repo.  It should contain:
 - Interval to run under, specified in a human way (i.e., `1h`, `1d`, `30m`, etc.)
   - Interval is optional; the default will be 1 hour.
 
-cf-ddns looks for a configuration file at `~/.cf-ddns.yaml` by default, but you
+cf-ddns looks for a configuration file at `/etc/cf-ddns/cf-ddns.yaml` by default, but you
 can specify a path with the `--config` command-line option.
 
-Once you've got a configuration file, run the client:
+Once you've got a configuration file, you have two options to run:
+
+### Daemon Mode
+
+In daemon mode, cf-ddns will run constantly and check on the interval specific in the configuration
+file whether an update is needed:
+
+```bash
+cf-ddns daemon # --config /path/to/config.yml (optional)
+```
+
+A systemd service file has been provided that will run cf-ddns in daemon mode using a configuration
+file at the default location (`/etc/cf-ddns/cf-ddns.yaml`).
+
+
+### One-shot Mode
+
+In one-shot mode, cf-ddns will run once, will perform updates as needed, then exit:
 
 ```bash
 cf-ddns # --config /path/to/config.yml (optional)
 ```
 
-cf-ddns will continue to run on the interval, updating the records
-defined if the external IP address changes.
+One-shot mode can be run on a systemd timer, see the provided `cf-ddns-oneshot.{service,timer}`
+files. 
 
 ## Contributions
 

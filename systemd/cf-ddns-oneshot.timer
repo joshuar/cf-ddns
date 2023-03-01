@@ -1,0 +1,17 @@
+[Unit]
+Description=Timer for cf-ddns client
+Documentation=https://github.com/joshuar/cf-ddns
+
+[Timer]
+Persistent=true
+
+; Run the timer unit every 15 minutes.
+OnCalendar=hourly
+
+; Always run the timer on time.
+AccuracySec=1us
+
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target
